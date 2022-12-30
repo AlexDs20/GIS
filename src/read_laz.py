@@ -4,13 +4,10 @@ import numpy as np
 
 
 data_dir = '../data/70_7/'
-tmp_dir = './tmp/'
 wbt_exe = 'whitebox_tools'
 resolution = 2
 current_folder = os.getcwd()
 CRS = 'EPSG:3006'
-
-os.makedirs(tmp_dir, exist_ok=True)
 
 
 def compute_gradients(input, output):
@@ -19,7 +16,7 @@ def compute_gradients(input, output):
         meta = dataset.meta
 
     gradients = np.array(np.gradient(data, resolution))
-    gradients = np.sqrt(np.sum(gradients*gradients, axis=0))
+    gradients = np.sqrt(np.sum(gradients**2, axis=0))
 
     with rasterio.open(output, 'w', **meta) as dst:
         dst.write(gradients, 1)
@@ -50,7 +47,18 @@ def main():
 
     for file in list_files:
         print(file)
-        out_file = os.path.splitext(file)[0]+'_ground_points.tif'
+
+        # Compute a ground elevation map, high res
+        out_file_hr = os.path.splitext(file)[0]+'_ground_points_hr.tif'
+        # Keep only ground points
+        cmd = f"{wbt_exe} -r=LidarTINGridding \
+            --input={file} \
+            --output={out_file_hr} \
+            --resolution=0.5 \
+            --exclude_cls='0,1,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18'"
+        os.system(cmd)
+
+        out_file = os.path.splitext(file)[0]+'_ground_points_lr.tif'
         # Keep only ground points
         cmd = f"{wbt_exe} -r=LidarTINGridding \
             --input={file} \
