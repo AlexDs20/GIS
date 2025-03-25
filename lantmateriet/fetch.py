@@ -1,3 +1,4 @@
+import os
 import requests
 import json
 import base64
@@ -50,50 +51,23 @@ def make_request(url, params: dict=None, headers: dict=None, type: str="json"):
         return response.content
 
 
-
-def write_tif_data_to_file(data, filepath):
-    """
-    Writes raw TIFF data to a file.
-
-    Args:
-        data (bytes): The raw TIFF data (bytes object).
-        filepath (str): The path to the file where the data should be written.
-    """
+def download_and_save_tif(url, filepath, headers: dict|None=None):
     try:
-        with open(filepath, 'wb') as f:  # 'wb' for write binary
-            f.write(data)
-        print(f"TIFF data written successfully to {filepath}")
-    except Exception as e:
-        print(f"Error writing TIFF data to file: {e}")
+        if headers and "username" in headers.keys() and "password" in headers.keys():
+            credentials = f"{headers["username"]}:{headers["password"]}".encode("utf-8")
+            encoded_credentials = base64.b64encode(credentials).decode("utf-8")
+            headers.update({
+                "Authorization": f"Basic {encoded_credentials}"
+            })
+            headers.pop("username")
+            headers.pop("password")
 
-# Example usage (assuming you've already downloaded the data):
+        response = requests.get(url, headers=headers, stream=True)
+        response.raise_for_status()
 
-headers = creds
-
-if headers and "username" in headers.keys() and "password" in headers.keys():
-    credentials = f"{headers["username"]}:{headers["password"]}".encode("utf-8")
-    encoded_credentials = base64.b64encode(credentials).decode("utf-8")
-    headers.update({
-        "Authorization": f"Basic {encoded_credentials}"
-    })
-    headers.pop("username")
-    headers.pop("password")
-
-
-def download_and_save_tif(url, filepath):
-    """
-    Downloads a TIFF file from a URL and saves it to a file.
-
-    Args:
-        url (str): The URL of the TIFF file.
-        filepath (str): The path to save the downloaded TIFF file.
-    """
-    try:
-        response = requests.get(url, headers=headers, stream=True) # stream=True is crucial for large files
-        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
-
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192): # process the file in chunks
+            for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
 
         print(f"TIFF file downloaded and saved successfully to {filepath}")
@@ -105,30 +79,42 @@ def download_and_save_tif(url, filepath):
     except Exception as e:
         print(f"An unexpected error occured: {e}")
 
-# example usage.
-# replace with your URL and output file path.
-tif_url =  "https://dl1.lantmateriet.se/bild/data/orto/se0_5c_sweref/2009_J/o72900_5050_50_fi09.tif"
-output_file_path = "/home/alexandre/Desktop/test_dl.tif"
-download_and_save_tif(tif_url, output_file_path)
+
+def check_if_next_link_exists(search_data):
+    next_exists = False
+    out_links = []
+    for l in search_data["links"]:
+        if l["rel"] == "next":
+            next_exists = True
+            out_links.append(l["href"])
+
+    return next_exists, out_links
 
 
+def main():
+    out_dir = "/home/alexandre/Desktop/download_lantmateriet"
+    params = {
+        "bbox": "15.122,65.7567,15.3297,65.9744",
+        "limit": 50
+    }
+    links = []
+    next_links = [URL_BILD+"/search"]
 
-# def main():
-#     params = {
-#         "bbox": "15.122,65.7567,15.3297,65.9744",
-#         "limit": 10000
-#     }
-#     links = make_request(URL_BILD+"/search", params=params, type="json")
-#
-#     links = "https://dl1.lantmateriet.se/bild/data/orto/se0_5c_sweref/2009_J/o72900_5050_50_fi09.tif"
-#     headers = creds
-#     data = make_request(links, headers=headers, type="raw")
-#
-#     with open("/home/alexandre/Desktop/test_dl.tif", "wb") as fp:
-#         fp.write(data)
-#
-#
-#
-#
-# if __name__ == "__main__":
-#     main()
+    while next_links:
+        next = next_links.pop(0)
+        search_data = make_request(next, params=params, type="json")
+        for feat in search_data["features"]:
+            links.append(feat["assets"]["data"]["href"])
+
+        exists, new_nexts = check_if_next_link_exists(search_data)
+        if exists:
+            params = None
+            next_links.extend(new_nexts)
+
+
+    for link in links:
+        output_file_path = os.path.join(out_dir, link.split("data/")[1])
+        download_and_save_tif(link, output_file_path, headers=creds)
+
+if __name__ == "__main__":
+    main()
